@@ -37,7 +37,7 @@ export default function OfflineSetup({ onCacheChange }) {
               lastRefresh.current = Date.now();
               onCacheChange?.();
             }
-            delay = ['complete', 'paused'].includes(next.state) ? 15000 : 2000;
+            delay = ['complete', 'paused', 'choice', 'on-demand'].includes(next.state) ? 15000 : 2000;
           }
         } catch {
           if (!disposed && version === revision.current) { setUnavailable(true); delay = 5000; }
@@ -66,6 +66,8 @@ export default function OfflineSetup({ onCacheChange }) {
   const state = unavailable ? 'unavailable' : status?.state || 'starting';
   const titles = {
     starting: 'Checking your offline Quran',
+    choice: 'Choose how to listen',
+    'on-demand': 'Audio saved as needed',
     downloading: 'Preparing your offline Quran',
     paused: 'Offline download paused',
     waiting: 'Offline download will retry',
@@ -74,6 +76,8 @@ export default function OfflineSetup({ onCacheChange }) {
   };
   const descriptions = {
     starting: 'Checking the recitations already saved on this computer.',
+    choice: 'Quran text is already available offline. Download all recitations (about 1.5 GB), or save audio only as you listen. Your choice is remembered.',
+    'on-demand': 'Only the ayahs you play or choose to save are downloaded. Unsaved audio needs internet. You can download everything later.',
     downloading: 'Downloading Yasser Al-Dosari’s complete recitation (about 1.5 GB). You can read now. Keep the app running until it finishes.',
     paused: 'Your saved ayahs are kept. Resume when you’re ready to download the rest.',
     waiting: status?.error || 'Check your internet connection. Completed ayahs are saved; the download will retry automatically.',
@@ -81,8 +85,11 @@ export default function OfflineSetup({ onCacheChange }) {
     unavailable: 'Keep the local server running. This status will reconnect automatically.',
   };
   const complete = state === 'complete';
-  const canPause = ['starting', 'downloading', 'waiting'].includes(state);
-  const canResume = ['paused', 'waiting'].includes(state);
+  const asNeeded = status?.preference === 'as-needed' || state === 'on-demand';
+  const canPause = ['downloading', 'waiting'].includes(state) && status?.preference === 'all';
+  const canResume = ['paused', 'waiting'].includes(state) && status?.preference === 'all';
+  const canDownloadAll = ['choice', 'on-demand'].includes(state) || (complete && asNeeded);
+  const canUseAsNeeded = state === 'choice' || (status?.preference === 'all' && !unavailable);
   return <section className={`offline-setup ${complete ? 'is-complete' : ''}`} aria-label="Offline setup">
     <span className="offline-setup-icon" aria-hidden="true">{complete ? <CheckCircle size={26}/> : <DownloadSimple size={25}/>}</span>
     <div className="offline-setup-content">
@@ -90,12 +97,15 @@ export default function OfflineSetup({ onCacheChange }) {
       <p>{descriptions[state] || descriptions.starting}</p>
       <span className="sr-only" role="status">{titles[state] || titles.starting}</span>
       {status?.total > 0 && <div className="offline-setup-progress">
-        {!complete && <progress value={status.completed} max={status.total} aria-label="Full recitation download"/>}
+        {!['complete', 'choice', 'on-demand'].includes(state) && <progress value={status.completed} max={status.total} aria-label="Full recitation download"/>}
         <span>{status.completed.toLocaleString()} / {status.total.toLocaleString()} ayahs<span aria-hidden="true"> · </span>{formatBytes(status.bytes)}{status.totalBytes ? ` of ${formatBytes(status.totalBytes)}` : ''} saved</span>
       </div>}
+      {complete && <p className="offline-preference">{asNeeded ? 'Preference: save audio as needed.' : 'Preference: keep the full recitation downloaded.'}</p>}
       {actionError && <p role="alert">{actionError}</p>}
     </div>
-    {(canPause || canResume) && <div className="offline-setup-actions">
+    {(canPause || canResume || canDownloadAll || canUseAsNeeded) && <div className="offline-setup-actions">
+      {canDownloadAll && <button disabled={busy} onClick={() => changeDownload('resume')}><DownloadSimple size={15}/> Download all audio</button>}
+      {canUseAsNeeded && <button disabled={busy} onClick={() => changeDownload('as-needed')}><Play size={15}/> Use as needed</button>}
       {canPause && <button disabled={busy} onClick={() => changeDownload('pause')}><Pause size={15}/> Pause download</button>}
       {canResume && <button disabled={busy} onClick={() => changeDownload('resume')}>{state === 'waiting' ? <ArrowsClockwise size={15}/> : <Play size={15}/>} {state === 'waiting' ? 'Retry download now' : 'Resume download'}</button>}
     </div>}

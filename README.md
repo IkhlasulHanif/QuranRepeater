@@ -4,7 +4,7 @@ A private, local Quran reader with Sheikh Yasser Al-Dosari recitation. It runs o
 
 ## Open the app
 
-On this Mac, double-click **Start Quran Repeater.command**. It installs any missing app dependencies, builds the app, starts its local server, and opens your browser. On first launch, the full Yasser Al-Dosari recitation downloads automatically in the background. The setup banner shows progress; you can read immediately. Keep the Terminal window open while using it; press **Control+C** in that window to stop.
+On this Mac, double-click **Start Quran Repeater.command**. It installs any missing app dependencies, builds the app, starts its local server, and opens your browser. On first launch, choose **Download all audio** or **Use as needed** in the reader. No full recitation download begins before you choose. You can read immediately either way. Keep the Terminal window open while using it; press **Control+C** in that window to stop.
 
 Or use a terminal in this folder:
 
@@ -31,13 +31,18 @@ The page text reflows to fit the screen; it preserves the actual Mushaf page's a
 
 The complete Quran and Arabic fonts are bundled. After the initial dependency installation, the app can be started and read **without internet**. Full offline listening is ready when the setup banner says **Your Quran is ready offline**.
 
-On the first launch, the app **automatically downloads all 6,236 ayahs** by Yasser Al-Dosari. Keep the local server running and stay connected until the progress reaches 6,236 / 6,236. The text and fonts are already bundled, so you can read while the audio downloads. The complete recitation is approximately **1.5 GB**. The banner shows the actual storage used as it progresses; file lengths are checked against the bundled provider manifest.
+On first launch, the setup banner gives you two choices:
 
-Downloads run with a small number of concurrent requests and save each completed ayah to disk. Connection failures retry automatically. If you close the app or restart the computer, the next launch checks the saved files and continues from where it left off. **Pause download** pauses the full collection; an explicit pause is remembered until you choose **Resume download**. Currently downloading ayahs may finish after pausing. Missing or invalid files are downloaded again.
+- **Download all audio** saves all 6,236 ayahs by Yasser Al-Dosari (approximately **1.5 GB**). Keep the local server running and stay connected until progress reaches 6,236 / 6,236. The banner shows progress, and file lengths are checked against the bundled provider manifest.
+- **Use as needed** downloads only audio you play or explicitly save. Unsaved recitation needs internet; the complete Quran text and fonts already work offline.
+
+Your choice is saved on this computer and reused on later launches. You can change it in the setup banner at any time. Upgrading from the older automatic-download version asks you to choose; previously saved recordings are kept.
+
+Downloads run with a small number of concurrent requests and save each completed ayah to disk. After you choose **Download all audio**, connection failures retry automatically. If you close the app or restart the computer, the next launch checks the saved files and continues from where it left off. **Pause download** pauses the full collection; an explicit pause is remembered until you choose **Resume download**. Choosing **Use as needed** stops future bulk downloads, including after a restart. Currently downloading ayahs may finish after pausing or switching. Missing or invalid files are downloaded again only when full download is enabled or you request those ayahs.
 
 **Save audio offline** remains available to prioritize the page or surah you are reading. Played ayahs are also saved. Once all ayahs are downloaded, the full app can run without internet; later launches reuse the saved recordings.
 
-Audio is stored in `.cache/audio/`, outside Git, and persists across browser restarts. To reclaim space, pause the full download, stop the app, and remove the desired MP3 files from that folder. Leave the full download paused if you do not want missing files downloaded again. Preferences and the bookmark are stored in your browser's local storage. Use the same address/browser to keep those preferences.
+Audio is stored in `.cache/audio/`, outside Git, and persists across browser restarts. To reclaim space, choose **Use as needed**, stop the app, and remove the desired MP3 files from that folder. They will only download again if you play/save them or switch back to the full download. The download choice is stored in `.cache/offline-download.json`. Reading preferences and the bookmark are stored in your browser's local storage. Use the same address/browser to keep those reading preferences.
 
 ## Prayer times
 
@@ -62,6 +67,6 @@ npm run test:e2e                # browser behavior and accessibility checks
 node scripts/import-quran.mjs --check  # verify bundled data offline
 ```
 
-Browser tests use installed Chrome on macOS, or Chromium elsewhere. If needed, run `npx playwright install chromium`; `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` can select a browser executable. The browser suite tests page/surah boundaries, repeat behavior, real media decoding, offline reading/cache use, setup progress and pause/resume, desktop/mobile layout, and automated accessibility. The server suite also verifies first-run download, retry, restart recovery, and cache repair. Screen-reader usability still benefits from human testing.
+Browser tests use installed Chrome on macOS, or Chromium elsewhere. If needed, run `npx playwright install chromium`; `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` can select a browser executable. The browser suite tests page/surah boundaries, repeat behavior, real media decoding, offline reading/cache use, startup download choices, progress and pause/resume, desktop/mobile layout, and automated accessibility. The server suite also verifies first-run opt-in, remembered choices, retry, restart recovery, and cache repair. Screen-reader usability still benefits from human testing.
 
 To refresh from upstream intentionally, run `npm run import:quran` and review the data and provenance changes. The app never updates the sacred text automatically.

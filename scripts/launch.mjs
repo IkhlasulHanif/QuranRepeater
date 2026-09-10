@@ -18,8 +18,9 @@ try {
 } catch { /* Start our own local server. */ }
 if (existing) {
   const offline = await fetch(`${url}/api/offline-status`, { signal: AbortSignal.timeout(15000) }).catch(() => null);
-  if (!offline?.ok) {
-    console.error('An older Quran Repeater server is already running. Stop it with Control+C, then run npm run init again.');
+  const downloadStatus = offline?.ok ? await offline.json().catch(() => null) : null;
+  if (!['ask', 'all', 'as-needed'].includes(downloadStatus?.preference)) {
+    console.error('Restart the running Quran Repeater server to use this version: stop it with Control+C, then run npm run init again.');
     process.exit(1);
   }
   console.log(`Quran Repeater is already running at ${url}`);

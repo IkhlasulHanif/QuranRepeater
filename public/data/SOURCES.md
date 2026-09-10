@@ -66,8 +66,8 @@ Al-Dosari. Filenames combine the three-digit surah and three-digit ayah numbers:
 All 6,236 expected verse filenames were verified against the provider's
 directory listing. Sample MP3 responses were checked for success, audio MIME
 type, byte-range support, and cross-origin availability. Runtime availability
-still depends on the provider and the network. The app downloads the complete recording collection automatically on first launch,
-with pause and resume support. Audio is saved in the local `.cache/audio/` folder,
+still depends on the provider and the network. On first launch, the app asks whether to download the complete recording collection
+or save recordings as needed. Full downloads support pause and resume. Audio is saved in the local `.cache/audio/` folder,
 which is excluded from Git; the recordings are not bundled in the repository.
 
 Recordings remain the property of their respective rights holders. No new

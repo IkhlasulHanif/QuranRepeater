@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-/** Keep the recitation on disk; the only persisted preference is an explicit pause.
+/** Download the complete recitation only after an explicit full-download choice.
  * Completion is always established from the audio files, never from a saved counter.
  */
 export function createOfflineDownload({
@@ -26,6 +26,7 @@ export function createOfflineDownload({
   let initialized = false;
   let initialization;
   let inventory;
+  let preference = 'ask';
   let paused = false;
   let enabled = false;
   let stopped = false;
@@ -41,11 +42,14 @@ export function createOfflineDownload({
     let bytes = 0;
     for (const file of completed.values()) bytes += file.size;
     const state = !initialized ? lastError ? 'waiting' : 'starting'
-      : verifiedComplete && completed.size === filenames.length ? 'complete'
-        : paused || !enabled || stopped ? 'paused'
-          : lastError || retryTimer ? 'waiting' : 'downloading';
+      : preference === 'ask' ? 'choice'
+        : verifiedComplete && completed.size === filenames.length ? 'complete'
+          : preference === 'as-needed' ? 'on-demand'
+            : paused || !enabled || stopped ? 'paused'
+              : lastError || retryTimer ? 'waiting' : 'downloading';
     return {
       state,
+      preference,
       completed: completed.size,
       total: filenames.length,
       bytes,
@@ -88,11 +92,11 @@ export function createOfflineDownload({
 
   function retry(error) {
     lastError = error?.message || 'Connect to the internet to finish saving the recitation.';
-    if (retryTimer || paused || !enabled || stopped) return;
+    if (retryTimer || preference !== 'all' || paused || !enabled || stopped) return;
     const delay = Math.min(maxRetryDelayMs, retryDelayMs * (2 ** Math.min(retryAttempt++, 8)));
     retryTimer = setTimeout(() => {
       retryTimer = undefined;
-      if (paused || !enabled || stopped) return;
+      if (preference !== 'all' || paused || !enabled || stopped) return;
       lastError = undefined;
       if (!initialized) void initialize().then(pump, retry);
       else pump();
@@ -104,11 +108,14 @@ export function createOfflineDownload({
     if (initialized) return;
     if (initialization) return initialization;
     initialization = (async () => {
-      const preference = await readFile(stateFile, 'utf8').then(JSON.parse).catch((error) => {
+      const saved = await readFile(stateFile, 'utf8').then(JSON.parse).catch((error) => {
         if (error.code === 'ENOENT' || error instanceof SyntaxError) return {};
         throw error;
       });
-      paused = preference.paused === true;
+      // Legacy state recorded an automatic download, not consent to one. Ask
+      // again unless this file contains the user's explicit current choice.
+      preference = ['all', 'as-needed'].includes(saved?.preference) ? saved.preference : 'ask';
+      paused = preference === 'all' && saved?.paused === true;
       filenames = [...new Set(await getFilenames())];
       if (!filenames.length) throw new Error('The local Quran text is unavailable. Restore public/data/quran.json.');
       totalBytes = await getTotalBytes(filenames);
@@ -120,7 +127,7 @@ export function createOfflineDownload({
   }
 
   function pump() {
-    if (!initialized || stopped || paused || !enabled || retryTimer || lastError || verifying) return;
+    if (!initialized || preference !== 'all' || stopped || paused || !enabled || retryTimer || lastError || verifying) return;
     for (const filename of filenames) {
       if (active.size >= concurrency) break;
       if (completed.has(filename) || active.has(filename)) continue;
@@ -143,14 +150,15 @@ export function createOfflineDownload({
     }
   }
 
-  function savePreference(value) {
+  function savePreference() {
+    const value = { preference, paused };
     // Serialize writes so rapidly pressing pause/resume cannot persist the
     // opposite preference when filesystem writes complete out of order.
     preferenceWrite = preferenceWrite.catch(() => {}).then(async () => {
       await mkdir(dirname(stateFile), { recursive: true });
       const temporary = `${stateFile}.${randomUUID()}.tmp`;
       try {
-        await writeFile(temporary, JSON.stringify({ paused: value }) + '\n', { flag: 'wx' });
+        await writeFile(temporary, JSON.stringify(value) + '\n', { flag: 'wx' });
         await rename(temporary, stateFile);
       } finally {
         await unlink(temporary).catch((error) => { if (error.code !== 'ENOENT') throw error; });
@@ -163,6 +171,8 @@ export function createOfflineDownload({
     noteCached,
     async start({ download = true } = {}) {
       if (stopped) return snapshot();
+      // Startup may enable the worker, but only a persisted 'all' choice lets
+      // it schedule audio requests. Opening the app never makes that choice.
       enabled = download;
       try {
         await initialize();
@@ -189,19 +199,30 @@ export function createOfflineDownload({
       paused = true;
       enabled = true;
       clearRetry();
-      await savePreference(true);
+      await savePreference();
       return snapshot();
     },
     async resume() {
       await initialize();
+      preference = 'all';
       paused = false;
       enabled = true;
       clearRetry();
       lastError = undefined;
       retryAttempt = 0;
-      await savePreference(false);
+      await savePreference();
       try { await reconcile(); } catch (error) { retry(error); }
       pump();
+      return snapshot();
+    },
+    async asNeeded() {
+      await initialize();
+      preference = 'as-needed';
+      paused = false;
+      clearRetry();
+      lastError = undefined;
+      retryAttempt = 0;
+      await savePreference();
       return snapshot();
     },
     async stop() {

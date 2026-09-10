@@ -28,7 +28,7 @@ try {
     await runNpm(['ci']);
   }
   await runNpm(['run', 'build']);
-  console.log('The complete recitation downloads automatically on first launch. Watch its progress in the reader.');
+  console.log('Choose Download all audio or Use as needed in the reader. Your choice is remembered.');
   await import('./launch.mjs');
 } catch (error) {
   console.error(error.message);

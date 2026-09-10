@@ -330,14 +330,18 @@ export async function createAppServer({
       if (!trustedRequest(request, pathname)) {
         throw new HttpError(403, 'This app is available only from its local address.');
       }
-      if (pathname === '/api/offline-download/pause' || pathname === '/api/offline-download/resume') {
+      const downloadAction = {
+        '/api/offline-download/pause': 'pause',
+        '/api/offline-download/resume': 'resume',
+        '/api/offline-download/as-needed': 'asNeeded',
+      }[pathname];
+      if (downloadAction) {
         if (request.method !== 'POST') {
           response.setHeader('Allow', 'POST');
           throw new HttpError(405, 'Use POST to change the offline download.');
         }
         await consumeSmallBody(request);
-        const action = pathname.endsWith('/pause') ? 'pause' : 'resume';
-        sendJson(response, 200, await offlineDownload[action]());
+        sendJson(response, 200, await offlineDownload[downloadAction]());
         return;
       }
       if (!['GET', 'HEAD'].includes(request.method)) {
