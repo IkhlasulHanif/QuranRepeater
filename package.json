@@ -1,0 +1,30 @@
+{
+  "name": "quran-repeater",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A local Quran reader with Yasser Al-Dosari recitation and page or surah repeat.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "init": "node scripts/init.mjs",
+    "dev": "node server/index.mjs --dev",
+    "build": "vite build",
+    "start": "npm run build && node server/index.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "import:quran": "node scripts/import-quran.mjs"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.3.0"
+  }
+}
