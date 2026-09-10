@@ -55,9 +55,9 @@ The source copyright notice is also embedded in `quran.json`:
 Tanzil's metadata is separately marked Copyright (C) 2008-2009 Tanzil.info,
 Creative Commons Attribution 3.0.
 
-## Sheikh Yasser Al-Dosari recitation
+## Sheikh Yasser Al-Dosari ayah clips
 
-The sole audio source is [EveryAyah](https://everyayah.com/), specifically its
+The individual ayah audio source is [EveryAyah](https://everyayah.com/), specifically its
 [Yasser Ad-Dussary 128 kbps collection](https://everyayah.com/data/Yasser_Ad-Dussary_128kbps/).
 The alternative spelling is the provider's directory name for Sheikh Yasser
 Al-Dosari. Filenames combine the three-digit surah and three-digit ayah numbers:
@@ -72,6 +72,62 @@ which is excluded from Git; the recordings are not bundled in the repository.
 
 Recordings remain the property of their respective rights holders. No new
 license or ownership over them is claimed by this project.
+
+## Continuous Sheikh Yasser Al-Dosari recitation
+
+Continuous page and surah playback uses original full-surah recordings from
+[MP3Quran's Yasser Al-Dosari collection](https://server11.mp3quran.net/yasser/).
+Its [official timing API](https://www.mp3quran.net/eng/api) identifies this Hafs
+an Asim reading as `read=92` and provides all 114 surahs:
+
+- [Timed reading catalog](https://mp3quran.net/api/v3/ayat_timing/reads)
+- [Example ayah timings for Al-Baqarah](https://mp3quran.net/api/v3/ayat_timing?surah=2&read=92)
+- [MP3Quran source-use permission](https://www.mp3quran.net/eng/privacy)
+
+The provider's Copyrights section permits visitors and developers to copy
+materials and use links on its websites. This project credits MP3Quran and the
+reciter, and claims no ownership over the recordings. Downloaded and generated
+audio is stored locally under `.cache/` and is excluded from Git.
+
+`continuous-audio.json` bundles timing metadata, source hashes, and exact audio
+byte lengths, without bundling the recordings. MP3Quran expresses its source
+timings in milliseconds; this file stores seconds. Each surah's `duration` is
+the final ayah's end timestamp. `recordingDuration` includes the recording tail
+and is measured from its MP3 Xing/VBRI frame count where available, or estimated
+from constant-bitrate bytes and rounded up to a frame. The method is recorded
+per surah. End-of-surah playback should preserve that tail or continue to EOF.
+
+For a page, match its existing Quran ayahs to these timings by surah and ayah
+number. Start at zero when the selection begins a surah, preserving any opening
+basmala or introduction; otherwise start at the first selected ayah's timestamp.
+An internal page ends at the next ayah's start. Play the original contiguous
+recording between these boundaries, preserving its pauses within the page.
+Pages spanning surahs have a separate contiguous segment for each surah.
+
+The provider's SVG page assignments sometimes differ from the reader's checked
+604-page Tanzil mapping. `source.pageDifferences` records each discrepancy;
+the bundled ayah `page` always comes from `quran.json`. Timing gaps are recorded
+in `source.timingGaps` and remain unedited. Neither discrepancy changes the
+original Arabic text or its page assignment.
+
+`source.durationOverruns` records source end markers extending less than one
+second beyond the MP3's duration. These markers remain unchanged for provenance;
+playback uses the file's natural EOF at a surah's end. The importer rejects
+larger overruns instead of accepting a potentially mismatched recording.
+
+The 10 September 2026 import contains 114 recordings totaling 1,440,093,508
+bytes. All 6,236 ayah timings are present and ordered without overlap. It records
+56 SVG page differences, one 20 ms gap after 80:37, and final timestamp overruns
+of 187–424 ms in surahs 94, 105, 106, 107, and 111. These known source anomalies
+are explicit in the bundled provenance rather than silently corrected.
+
+Regenerate with `node scripts/import-continuous-audio.mjs`. The importer
+verifies all 6,236 ayah numbers and their order, rejects overlapping or invalid
+timings, compares 114 audio Content-Length headers to the provider directory,
+and checks the final ayah against the recording duration using small byte-range
+reads, recording small terminal differences as described above. It downloads
+metadata and bounded MP3 samples, not the full collection.
+Review recorded source differences whenever refreshing the metadata.
 
 ## Local Arabic fonts
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Headphones, Play, Pause, SkipBack, SkipForward, ArrowLeft, ArrowRight, Repeat, DownloadSimple, Check, MagnifyingGlass, Moon, Sun, X, List, BookmarkSimple, Info, SpeakerHigh } from '@phosphor-icons/react';
 import { audioKey, audioUrl, formatTime, selectVerses } from './playback.mjs';
 import { useRecitation } from './useRecitation.js';
+import { useContinuousRecitation } from './useContinuousRecitation.js';
 import PrayerPanel from './PrayerPanel.jsx';
 import OfflineSetup from './OfflineSetup.jsx';
 
@@ -13,11 +14,18 @@ function normalizeSearch(value) {
     .replace(/[^a-z0-9\u0621-\u064a]/g, '').replace(/([aeiou])\1+/g, '$1');
 }
 const initial = readSaved();
+const EMPTY_VERSES = [];
+const surahKey = verse => String(verse.surah).padStart(3, '0');
 function IconButton({ label, children, ...props }) { return <button type="button" className="icon-button" title={label} aria-label={label} {...props}>{children}</button>; }
 function ArabicNumber({ value }) { return <>{Number(value).toLocaleString('ar-EG')}</>; }
 
 export default function App() {
   const [data, setData] = useState(null);
+  const [audioMode, setAudioMode] = useState(initial.audioMode === 'ayah' ? 'ayah' : 'continuous');
+  const continuous = audioMode === 'continuous';
+  const apiPrefix = continuous ? '/api/continuous' : '/api';
+  const currentApiPrefix = useRef(apiPrefix);
+  currentApiPrefix.current = apiPrefix;
   const [loadError, setLoadError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [mode, setMode] = useState(initial.mode === 'surah' ? 'surah' : 'page');
@@ -42,7 +50,9 @@ export default function App() {
   const aboutDialog = useRef(null);
   const readerRef = useRef(null);
   const verses = useMemo(() => data ? selectVerses(data, mode, mode === 'page' ? page : surah) : [], [data, mode, page, surah]);
-  const player = useRecitation(verses, { repeats, gap, speed, volume });
+  const ayahPlayer = useRecitation(continuous ? EMPTY_VERSES : verses, { repeats, gap, speed, volume });
+  const continuousPlayer = useContinuousRecitation(continuous ? verses : EMPTY_VERSES, { mode, selected: mode === 'page' ? page : surah, repeats, gap, speed, volume });
+  const player = continuous ? continuousPlayer : ayahPlayer;
   const current = verses[player.index];
   const currentSurah = data?.surahs[(current?.surah || surah) - 1];
   const groups = useMemo(() => {
@@ -53,13 +63,13 @@ export default function App() {
     }
     return result;
   }, [verses]);
-  const savedCount = verses.filter(v => cached.has(audioKey(v))).length;
+  const savedCount = verses.filter(v => cached.has(continuous ? surahKey(v) : audioKey(v))).length;
   const isPlaying = ['playing', 'loading', 'gap'].includes(player.status);
   const unitLabel = mode === 'page' ? `Page ${page}` : data?.surahs[surah - 1]?.englishName || 'Surah';
   const activeSurah = verses.some(v => v.surah === surah) ? surah : verses[0]?.surah;
   const refreshCache = useCallback(() => {
-    fetch('/api/audio-cache').then(r => r.json()).then(result => setCached(new Set(result.files || []))).catch(() => {});
-  }, []);
+    fetch(`${apiPrefix}/audio-cache`).then(r => r.json()).then(result => { if (currentApiPrefix.current === apiPrefix) setCached(new Set(result.files || [])); }).catch(() => {});
+  }, [apiPrefix]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -76,8 +86,8 @@ export default function App() {
   }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem('quran-preferences', JSON.stringify({ mode, page, surah, fontSize, theme, repeats, speed, gap })); } catch { /* Reading still works without storage. */ }
-  }, [mode, page, surah, fontSize, theme, repeats, speed, gap]);
+    try { localStorage.setItem('quran-preferences', JSON.stringify({ mode, page, surah, fontSize, theme, repeats, speed, gap, audioMode })); } catch { /* Reading still works without storage. */ }
+  }, [mode, page, surah, fontSize, theme, repeats, speed, gap, audioMode]);
   useEffect(() => { setPageInput(String(page)); }, [page]);
   useEffect(() => {
     if (follow && player.status === 'playing' && current) {
@@ -85,15 +95,20 @@ export default function App() {
     }
   }, [current?.number, player.status, follow]);
   useEffect(() => {
-    fetch('/api/audio-cache').then(r => r.json()).then(result => setCached(new Set(result.files || []))).catch(() => {});
-    return () => downloadController.current?.abort();
-  }, []);
+    let disposed = false;
+    setCached(new Set());
+    fetch(`${apiPrefix}/audio-cache`).then(r => r.json()).then(result => { if (!disposed) setCached(new Set(result.files || [])); }).catch(() => {});
+    return () => { disposed = true; downloadController.current?.abort(); };
+  }, [apiPrefix]);
   useEffect(() => {
-    if (player.status === 'playing' && current) {
+    if (!continuous && player.status === 'playing' && current) {
       const key = audioKey(current);
       setCached(previous => previous.has(key) ? previous : new Set([...previous, key]));
     }
-  }, [player.status, current?.number]);
+  }, [player.status, current?.number, continuous]);
+  useEffect(() => {
+    if (continuous && player.status === 'playing') refreshCache();
+  }, [player.status, continuous, refreshCache]);
   useEffect(() => {
     if (!notice) return;
     const timeout = setTimeout(() => setNotice(''), 7000);
@@ -119,23 +134,24 @@ export default function App() {
   }
   async function downloadSelection() {
     if (saving) { downloadController.current?.abort(); return; }
-    const selection = [...verses];
+    const selection = continuous ? [...new Map(verses.map(v => [v.surah, v])).values()] : [...verses];
     const label = unitLabel;
     const controller = new AbortController(); downloadController.current = controller;
     setSaving({ done: 0, total: selection.length }); setNotice('');
     try {
       for (let i = 0; i < selection.length; i++) {
         const verse = selection[i];
-        if (!cached.has(audioKey(verse))) {
-          const response = await fetch(audioUrl(verse), { signal: controller.signal });
+        const key = continuous ? surahKey(verse) : audioKey(verse);
+        if (!cached.has(key)) {
+          const response = await fetch(continuous ? `/api/continuous/surah/${verse.surah}` : audioUrl(verse), { signal: controller.signal, ...(continuous ? { method: 'HEAD', cache: 'no-store' } : {}) });
           if (!response.ok) throw new Error();
           await response.arrayBuffer();
-          setCached(previous => new Set([...previous, audioKey(verse)]));
+          setCached(previous => new Set([...previous, key]));
         }
         setSaving({ done: i + 1, total: selection.length });
       }
       setNotice(`${label} saved for offline listening.`);
-    } catch (err) { setNotice(err.name === 'AbortError' ? 'Download stopped. Completed ayahs are still saved.' : 'Download interrupted. Check your connection and try again; saved ayahs are kept.'); }
+    } catch (err) { setNotice(err.name === 'AbortError' ? 'Download stopped. Completed recordings are still saved.' : 'Download interrupted. Check your connection and try again; saved recordings are kept.'); }
     finally { setSaving(null); downloadController.current = null; }
   }
 
@@ -149,7 +165,7 @@ export default function App() {
       <div className="brand"><span className="brand-symbol"><BookOpen size={26} weight="light" /></span><div>Quran Repeater<span>A space to read & return</span></div></div>
       <div className="header-actions"><span className="local-label">On your device</span><IconButton label={theme === 'light' ? 'Use dark theme' : 'Use light theme'} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? <Moon size={21} /> : <Sun size={21} />}</IconButton><IconButton label="About and sources" onClick={() => aboutDialog.current.showModal()}><Info size={21}/></IconButton><IconButton label={menuOpen ? 'Close surah list' : 'Open surah list'} className="icon-button mobile-menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={22}/> : <List size={22}/>}</IconButton></div>
     </header>
-    <OfflineSetup onCacheChange={refreshCache}/>
+    <OfflineSetup key={audioMode} audioMode={audioMode} onCacheChange={refreshCache}/>
     <div className="workspace">
       <aside className={`library ${menuOpen ? 'is-open' : ''}`} aria-label="Quran navigation">
         <div className="section-label"><BookOpen size={18}/> Your Quran</div>
@@ -180,6 +196,8 @@ export default function App() {
       </main>
       <aside className="listening-column" aria-label="Listening settings">
         <section className="listen-panel"><div className="section-label"><Headphones size={19}/> Listen & repeat</div><h2>Stay with an ayah.<br/>Return to a page.</h2><p className="reciter-label">YOUR RECITER</p><div className="reciter"><span className="reciter-monogram" lang="ar">ي</span><div>Yasser Al-Dosari<small>Hafs ‘an ‘Asim</small></div></div>
+          <label className="field" htmlFor="audio-format">Audio format<select id="audio-format" value={audioMode} disabled={!!saving} onChange={event => { player.stop(); setAudioMode(event.target.value); setNotice(''); }}><option value="continuous">Continuous recitation</option><option value="ayah">Individual ayah files</option></select></label>
+          <p className="audio-format-note">{continuous ? 'Each page plays as one recording, with natural pauses between ayahs. The first listen saves its full surah; this may take a moment.' : 'Uses your earlier ayah downloads. A short gap can occur between files.'}</p>
           <div className="repeat-summary"><Repeat size={20}/><div>{mode === 'page' ? 'Repeating this page' : 'Repeating this surah'}<strong>{unitLabel}</strong></div></div>
           <label className="field" htmlFor="repeat-count">Repeat<select id="repeat-count" value={repeats} onChange={e => setRepeats(e.target.value)}><option value="1">Play once</option><option value="2">2 times</option><option value="3">3 times</option><option value="5">5 times</option><option value="10">10 times</option><option value="forever">Continuously</option></select></label>
           <div className="field-pair"><label className="field" htmlFor="playback-speed">Speed<select id="playback-speed" value={speed} onChange={e => setSpeed(Number(e.target.value))}>{[0.75,0.85,1,1.1,1.25,1.5].map(n => <option key={n} value={n}>{n}×</option>)}</select></label><label className="field" htmlFor="repeat-gap">Repeat pause<select id="repeat-gap" value={gap} onChange={e => setGap(Number(e.target.value))}>{[0,1,3,5,10].map(n => <option key={n} value={n}>{n === 0 ? 'None' : `${n} sec`}</option>)}</select></label></div>
@@ -194,10 +212,10 @@ export default function App() {
     {player.error && <div className="audio-error" role="alert"><span>{player.error}</span><button onClick={player.toggle}>Try again</button></div>}
     <footer className="player" aria-label="Audio player">
       <div className="now-playing"><span className="audio-art"><Headphones size={25} weight="light"/></span><div><strong>{currentSurah?.englishName}<span> · Ayah {current?.numberInSurah}</span></strong><small>Yasser Al-Dosari</small></div></div>
-      <div className="transport"><div className="transport-buttons"><IconButton label="Previous ayah" disabled={player.index === 0} onClick={() => player.move(-1)}><SkipBack size={21} weight="fill"/></IconButton><button className="play-button" aria-label={isPlaying ? 'Pause recitation' : 'Play recitation'} onClick={player.toggle}>{isPlaying ? <Pause size={23} weight="fill"/> : <Play size={23} weight="fill"/>}</button><IconButton label="Next ayah" disabled={player.index === verses.length - 1} onClick={() => player.move(1)}><SkipForward size={21} weight="fill"/></IconButton></div><div className="seek-row"><span>{formatTime(player.time)}</span><input type="range" min="0" max={Number.isFinite(player.duration) ? player.duration : 0} step="0.1" value={player.time} disabled={!player.duration} onChange={e => player.seek(Number(e.target.value))} aria-label="Seek within current ayah"/><span>{formatTime(player.duration)}</span></div></div>
-      <div className="player-detail"><span className="playback-status" role="status">{player.status === 'loading' ? 'Loading audio…' : player.status === 'gap' ? `Pausing ${gap}s before repeat…` : player.status === 'finished' ? 'Selection complete' : `${unitLabel} · ${repeats === '1' ? 'Play once' : `Repeat ${player.round}${repeats === 'forever' ? '' : ` of ${repeats}`}`}`}</span><div className="volume-control"><SpeakerHigh size={17}/><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={e => setVolume(Number(e.target.value))}/><span>{speed}×</span></div></div>
+      <div className="transport"><div className="transport-buttons"><IconButton label="Previous ayah" disabled={player.index === 0} onClick={() => player.move(-1)}><SkipBack size={21} weight="fill"/></IconButton><button className="play-button" aria-label={isPlaying ? 'Pause recitation' : 'Play recitation'} onClick={player.toggle}>{isPlaying ? <Pause size={23} weight="fill"/> : <Play size={23} weight="fill"/>}</button><IconButton label="Next ayah" disabled={player.index === verses.length - 1} onClick={() => player.move(1)}><SkipForward size={21} weight="fill"/></IconButton></div><div className="seek-row"><span>{formatTime(player.time)}</span><input type="range" min="0" max={Number.isFinite(player.duration) ? player.duration : 0} step="0.1" value={player.time} disabled={!player.duration} onChange={e => player.seek(Number(e.target.value))} aria-label={continuous ? `Seek within current ${mode}` : 'Seek within current ayah'}/><span>{formatTime(player.duration)}</span></div></div>
+      <div className="player-detail"><span className="playback-status" role="status">{player.status === 'loading' ? (continuous ? 'Preparing continuous audio…' : 'Loading audio…') : player.status === 'gap' ? `Pausing ${gap}s before repeat…` : player.status === 'finished' ? 'Selection complete' : `${unitLabel} · ${repeats === '1' ? 'Play once' : `Repeat ${player.round}${repeats === 'forever' ? '' : ` of ${repeats}`}`}`}</span><div className="volume-control"><SpeakerHigh size={17}/><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={e => setVolume(Number(e.target.value))}/><span>{speed}×</span></div></div>
       <audio ref={player.audioRef} {...player.audioProps} preload="none"/>
     </footer>
-    <dialog ref={aboutDialog} className="about-dialog"><div className="dialog-title"><h2>Made for your daily reading</h2><IconButton label="Close about" onClick={() => aboutDialog.current.close()}><X size={21}/></IconButton></div><p>This app runs on your computer at localhost. The complete Quran text and Arabic fonts are included, so reading works without internet.</p><p>Recitation is by Sheikh Yasser Al-Dosari, supplied by <a href="https://everyayah.com/data/Yasser_Ad-Dussary_128kbps/" target="_blank" rel="noreferrer">EveryAyah</a>. Choose whether to download the full recitation or save audio as you listen. Your choice is remembered and can be changed in the setup banner. Saved ayahs play offline. A short pause may occur between ayah files.</p><p>The Uthmani Quran text is from the <a href="https://tanzil.net" target="_blank" rel="noreferrer">Tanzil Project</a>, via Al Quran Cloud, with the 604-page Madani Mushaf mapping. Pages reflow to fit your screen; the ayah boundaries stay the same.</p><p>Text is preserved exactly as supplied, including the opening basmala in the first ayah of surahs. Repeat counts apply to the full selected page or surah. A repeat pause happens between complete rounds.</p><p><a href="/data/SOURCES.md" target="_blank">Read source details and licenses</a></p><button className="primary-button" onClick={() => aboutDialog.current.close()}>Back to reading</button></dialog>
+    <dialog ref={aboutDialog} className="about-dialog"><div className="dialog-title"><h2>Made for your daily reading</h2><IconButton label="Close about" onClick={() => aboutDialog.current.close()}><X size={21}/></IconButton></div><p>This app runs on your computer at localhost. The complete Quran text and Arabic fonts are included, so reading works without internet.</p><p>Recitation is by Sheikh Yasser Al-Dosari, supplied by <a href="https://www.mp3quran.net/eng/yasser" target="_blank" rel="noreferrer">MP3Quran</a> for continuous playback. Pages are made from uninterrupted surah recordings, preserving the natural pauses between ayahs. The first listen downloads the full surah, which is then available offline. Earlier <a href="https://everyayah.com/data/Yasser_Ad-Dussary_128kbps/" target="_blank" rel="noreferrer">EveryAyah</a> downloads remain available under Individual ayah files. Each format has its own download choice and storage.</p><p>The Uthmani Quran text is from the <a href="https://tanzil.net" target="_blank" rel="noreferrer">Tanzil Project</a>, via Al Quran Cloud, with the 604-page Madani Mushaf mapping. Pages reflow to fit your screen; the ayah boundaries stay the same.</p><p>Text is preserved exactly as supplied, including the opening basmala in the first ayah of surahs. Repeat counts apply to the full selected page or surah. A repeat pause happens between complete rounds.</p><p><a href="/data/SOURCES.md" target="_blank">Read source details and licenses</a></p><button className="primary-button" onClick={() => aboutDialog.current.close()}>Back to reading</button></dialog>
   </>;
 }

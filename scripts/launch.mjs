@@ -17,7 +17,7 @@ try {
   existing = health.ok === true && health.localOnly === true;
 } catch { /* Start our own local server. */ }
 if (existing) {
-  const offline = await fetch(`${url}/api/offline-status`, { signal: AbortSignal.timeout(15000) }).catch(() => null);
+  const offline = await fetch(`${url}/api/continuous/offline-status`, { signal: AbortSignal.timeout(15000) }).catch(() => null);
   const downloadStatus = offline?.ok ? await offline.json().catch(() => null) : null;
   if (!['ask', 'all', 'as-needed'].includes(downloadStatus?.preference)) {
     console.error('Restart the running Quran Repeater server to use this version: stop it with Control+C, then run npm run init again.');

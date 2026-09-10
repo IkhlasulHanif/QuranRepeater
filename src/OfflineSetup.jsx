@@ -6,7 +6,10 @@ function formatBytes(bytes) {
   return `${Math.round(bytes / 1000 ** 2)} MB`;
 }
 
-export default function OfflineSetup({ onCacheChange }) {
+export default function OfflineSetup({ onCacheChange, audioMode = 'ayah' }) {
+  const continuous = audioMode === 'continuous';
+  const apiPrefix = continuous ? '/api/continuous' : '/api';
+  const units = continuous ? 'surahs' : 'ayahs';
   const [status, setStatus] = useState(null);
   const [unavailable, setUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -27,7 +30,7 @@ export default function OfflineSetup({ onCacheChange }) {
         const timeout = setTimeout(() => controller.abort(), 10000);
         const version = revision.current;
         try {
-          const response = await fetch('/api/offline-status', { signal: controller.signal });
+          const response = await fetch(`${apiPrefix}/offline-status`, { signal: controller.signal });
           if (!response.ok) throw new Error();
           const next = await response.json();
           if (!next.state || !Number.isFinite(next.total)) throw new Error();
@@ -47,7 +50,7 @@ export default function OfflineSetup({ onCacheChange }) {
     }
     poll();
     return () => { disposed = true; clearTimeout(timer); controller?.abort(); actionController.current?.abort(); };
-  }, [onCacheChange]);
+  }, [onCacheChange, apiPrefix]);
 
   async function changeDownload(action) {
     if (changing.current) return;
@@ -56,7 +59,7 @@ export default function OfflineSetup({ onCacheChange }) {
     const controller = new AbortController(); actionController.current = controller;
     const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await fetch(`/api/offline-download/${action}`, { method: 'POST', signal: controller.signal });
+      const response = await fetch(`${apiPrefix}/offline-download/${action}`, { method: 'POST', signal: controller.signal });
       if (!response.ok) throw new Error();
       setStatus(await response.json()); setUnavailable(false);
     } catch { if (!controller.signal.aborted) setActionError('Could not update the download. Please try again.'); else setActionError('The download server did not respond. Please try again.'); }
@@ -76,11 +79,11 @@ export default function OfflineSetup({ onCacheChange }) {
   };
   const descriptions = {
     starting: 'Checking the recitations already saved on this computer.',
-    choice: 'Quran text is already available offline. Download all recitations (about 1.5 GB), or save audio only as you listen. Your choice is remembered.',
-    'on-demand': 'Only the ayahs you play or choose to save are downloaded. Unsaved audio needs internet. You can download everything later.',
-    downloading: 'Downloading Yasser Al-Dosari’s complete recitation (about 1.5 GB). You can read now. Keep the app running until it finishes.',
-    paused: 'Your saved ayahs are kept. Resume when you’re ready to download the rest.',
-    waiting: status?.error || 'Check your internet connection. Completed ayahs are saved; the download will retry automatically.',
+    choice: continuous ? 'Quran text is already available offline. Download all continuous recordings (about 1.44 GB), or save each surah when you listen. Earlier ayah downloads are kept separately. Your choice is remembered.' : 'Quran text is already available offline. Download all recitations (about 1.5 GB), or save audio only as you listen. Your choice is remembered.',
+    'on-demand': continuous ? 'Listening to a page saves its full surah for smooth offline playback. Unsaved surahs need internet. You can download everything later.' : 'Only the ayahs you play or choose to save are downloaded. Unsaved audio needs internet. You can download everything later.',
+    downloading: `Downloading Yasser Al-Dosari’s complete ${continuous ? 'continuous recitation (about 1.44 GB)' : 'recitation (about 1.5 GB)'}. You can read now. Keep the app running until it finishes.`,
+    paused: `Your saved ${units} are kept. Resume when you’re ready to download the rest.`,
+    waiting: status?.error || `Check your internet connection. Completed ${units} are saved; the download will retry automatically.`,
     complete: 'All 114 surahs are saved on this computer. Reading and listening now work without internet.',
     unavailable: 'Keep the local server running. This status will reconnect automatically.',
   };
@@ -98,7 +101,7 @@ export default function OfflineSetup({ onCacheChange }) {
       <span className="sr-only" role="status">{titles[state] || titles.starting}</span>
       {status?.total > 0 && <div className="offline-setup-progress">
         {!['complete', 'choice', 'on-demand'].includes(state) && <progress value={status.completed} max={status.total} aria-label="Full recitation download"/>}
-        <span>{status.completed.toLocaleString()} / {status.total.toLocaleString()} ayahs<span aria-hidden="true"> · </span>{formatBytes(status.bytes)}{status.totalBytes ? ` of ${formatBytes(status.totalBytes)}` : ''} saved</span>
+        <span>{status.completed.toLocaleString()} / {status.total.toLocaleString()} {units}<span aria-hidden="true"> · </span>{formatBytes(status.bytes)}{status.totalBytes ? ` of ${formatBytes(status.totalBytes)}` : ''} saved</span>
       </div>}
       {complete && <p className="offline-preference">{asNeeded ? 'Preference: save audio as needed.' : 'Preference: keep the full recitation downloaded.'}</p>}
       {actionError && <p role="alert">{actionError}</p>}

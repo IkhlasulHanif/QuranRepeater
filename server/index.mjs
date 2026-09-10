@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 import { randomUUID } from 'node:crypto';
 import { createOfflineDownload } from './offline-download.mjs';
+import { createContinuousAudio } from './continuous-audio.mjs';
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const AUDIO_BASE_URL = 'https://everyayah.com/data/Yasser_Ad-Dussary_128kbps/';
@@ -202,6 +203,7 @@ export async function createAppServer({
   dev = false,
   autoDownload = false,
   offlineDownloadOptions = {},
+  continuousDownloadOptions = {},
 } = {}) {
   rootDir = resolve(rootDir);
   cacheDir = resolve(cacheDir);
@@ -321,6 +323,12 @@ export async function createAppServer({
     }
   }
 
+  const continuousAudio = createContinuousAudio({
+    rootDir, cacheDir, fetchImpl, shutdownSignal: shutdown.signal,
+    HttpError, sendJson, streamFile, consumeSmallBody,
+    offlineDownloadOptions: continuousDownloadOptions,
+  });
+
   async function handler(request, response) {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'no-referrer');
@@ -330,6 +338,7 @@ export async function createAppServer({
       if (!trustedRequest(request, pathname)) {
         throw new HttpError(403, 'This app is available only from its local address.');
       }
+      if (await continuousAudio.handle(pathname, request, response)) return;
       const downloadAction = {
         '/api/offline-download/pause': 'pause',
         '/api/offline-download/resume': 'resume',
@@ -414,10 +423,15 @@ export async function createAppServer({
 
   const server = createServer(handler);
   server.offlineDownload = offlineDownload;
-  server.once('listening', () => { void offlineDownload.start({ download: autoDownload }); });
+  server.continuousDownload = continuousAudio.offlineDownload;
+  server.once('listening', () => {
+    void offlineDownload.start({ download: autoDownload });
+    void continuousAudio.start({ download: autoDownload });
+  });
   server.once('close', () => {
     shutdown.abort();
     void offlineDownload.stop();
+    void continuousAudio.stop();
   });
   if (dev) {
     const { createServer: createViteServer } = await import('vite');

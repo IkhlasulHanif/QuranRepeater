@@ -10,6 +10,11 @@ const quran = JSON.parse(await readFile(new URL('../public/data/quran.json', imp
 const audioPath = (ayah) => `/api/audio/${ayah.surah}/${ayah.numberInSurah}`;
 
 async function openReader(page, url = '/') {
+  // Keep the original ayah-file behavior covered now that continuous audio is the default.
+  await page.addInitScript(() => {
+    const saved = JSON.parse(localStorage.getItem('quran-preferences') || '{}');
+    localStorage.setItem('quran-preferences', JSON.stringify({ ...saved, audioMode: 'ayah' }));
+  });
   await page.goto(url);
   await expect(page.getByRole('heading', { level: 1, name: 'Page 1', exact: true })).toBeVisible();
 }

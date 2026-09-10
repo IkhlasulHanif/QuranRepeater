@@ -21,7 +21,7 @@ async function runNpm(args) {
 }
 
 try {
-  const required = ['react', 'react-dom', '@phosphor-icons/react', 'vite', '@vitejs/plugin-react'];
+  const required = ['react', 'react-dom', '@phosphor-icons/react', 'vite', '@vitejs/plugin-react', 'ffmpeg-static'];
   const installed = await Promise.all(required.map(name => access(resolve(root, 'node_modules', name, 'package.json')).then(() => true, () => false)));
   if (installed.some(value => !value)) {
     console.log('First-time setup: installing dependencies. This step requires internet.');

@@ -34,6 +34,11 @@ async function setupStatus(page, initial = initialStatus) {
 }
 
 async function openSetup(page) {
+  // Keep the original ayah-file behavior covered now that continuous audio is the default.
+  await page.addInitScript(() => {
+    const saved = JSON.parse(localStorage.getItem('quran-preferences') || '{}');
+    localStorage.setItem('quran-preferences', JSON.stringify({ ...saved, audioMode: 'ayah' }));
+  });
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'Page 1', exact: true })).toBeVisible();
   const banner = page.getByRole('region', { name: 'Offline setup', exact: true });
